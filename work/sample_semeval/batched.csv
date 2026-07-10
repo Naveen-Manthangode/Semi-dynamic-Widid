@@ -1,0 +1,5 @@
+target,method,jsd,pdis,pdiv,clusters,occurrences_c1,occurrences_c2,batches_c1,batches_c2,historical_refreshes,gold
+bank,widid,1.0,0.5533474513416821,0.014843530128309468,4,2,2,2,2,0,0.9
+cell,widid,1.0,0.636513828625958,0.08448454115008414,4,2,2,2,2,0,0.2
+bank,semi_dynamic_widid,1.0,0.5533474513416821,0.014843530128309468,4,2,2,2,2,2,0.9
+cell,semi_dynamic_widid,1.0,0.636513828625958,0.08448454115008414,4,2,2,2,2,2,0.2
