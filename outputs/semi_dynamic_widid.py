@@ -9,6 +9,18 @@ import numpy as np
 ArrayLike = Sequence[Sequence[float]]
 
 
+def require_affinity_propagation() -> None:
+    """Fail early when the dependency required for APP is unavailable."""
+    try:
+        from sklearn.cluster import AffinityPropagation  # noqa: F401
+        from sklearn.metrics.pairwise import cosine_similarity  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "APP clustering requires scikit-learn in the active Python interpreter. "
+            "Install it with: python -m pip install scikit-learn"
+        ) from exc
+
+
 def _as_matrix(vectors: ArrayLike) -> np.ndarray:
     matrix = np.asarray(vectors, dtype=float)
     if matrix.ndim != 2:
@@ -81,7 +93,7 @@ class SemiDynamicWiDiD:
     """Semi-dynamic WiDiD with thresholded historical cluster refresh.
 
     This keeps WiDiD's incremental behavior for ordinary updates. After
-    ``historical_update_threshold`` new observations, it re-clusters retained
+    ``historical_update_threshold`` update batches, it re-clusters retained
     history, matches the new clusters back to stable cluster IDs, and then
     continues incrementally.
     """
@@ -89,7 +101,7 @@ class SemiDynamicWiDiD:
     def __init__(
         self,
         similarity_threshold: float = 0.78,
-        historical_update_threshold: int = 500,
+        historical_update_threshold: int = 5,
         history_window: Optional[int] = None,
         min_cluster_fraction: float = 0.0,
         max_cluster_age: Optional[int] = None,
@@ -139,7 +151,8 @@ class SemiDynamicWiDiD:
 
         labels = self._app_update(matrix)
 
-        self._updates_since_refresh += len(labels)
+        # One partial_fit call represents one newly available time slice/batch.
+        self._updates_since_refresh += 1
         self._trim_clusters()
 
         if self._updates_since_refresh >= self.historical_update_threshold:
@@ -316,24 +329,25 @@ class SemiDynamicWiDiD:
         if len(matrix) == 1:
             return np.asarray([0], dtype=int)
 
-        try:
-            from sklearn.cluster import AffinityPropagation
-            from sklearn.metrics.pairwise import cosine_similarity
+        require_affinity_propagation()
+        from sklearn.cluster import AffinityPropagation
+        from sklearn.metrics.pairwise import cosine_similarity
 
-            similarity = cosine_similarity(matrix)
-            preference = float(np.percentile(similarity, self.ap_preference_quantile))
-            model = AffinityPropagation(
-                affinity="precomputed",
-                damping=self.ap_damping,
-                preference=preference,
-                random_state=13,
+        similarity = cosine_similarity(matrix)
+        preference = float(np.percentile(similarity, self.ap_preference_quantile))
+        model = AffinityPropagation(
+            affinity="precomputed",
+            damping=self.ap_damping,
+            preference=preference,
+            random_state=13,
+        )
+        labels = model.fit_predict(similarity)
+        if np.any(labels < 0):
+            raise RuntimeError(
+                "Affinity Propagation did not converge. Try increasing --ap-damping "
+                "or lowering --ap-preference-quantile."
             )
-            labels = model.fit_predict(similarity)
-            if np.any(labels < 0):
-                raise ValueError("Affinity Propagation did not converge to valid labels")
-            return labels.astype(int)
-        except Exception:
-            return self._threshold_labels(matrix)
+        return labels.astype(int)
 
     def _threshold_labels(self, matrix: np.ndarray) -> np.ndarray:
         groups: List[List[int]] = []

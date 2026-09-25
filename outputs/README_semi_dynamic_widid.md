@@ -11,7 +11,7 @@ The semi-dynamic loop is:
 1. Extract contextual embeddings for a target word in the current time period.
 2. Assign new embeddings incrementally to the nearest existing sense cluster, or create a new sense cluster.
 3. Update cluster centroids, sizes, and aging metadata.
-4. When `historical_update_threshold` new occurrences have arrived, re-cluster retained history.
+4. When `historical_update_threshold` update batches have arrived, re-cluster retained history.
 5. Match refreshed clusters back to old cluster IDs where possible, so sense labels remain stable.
 6. Continue incrementally from the refreshed memory.
 
@@ -30,7 +30,7 @@ from semi_dynamic_widid import SemiDynamicWiDiD
 
 widid = SemiDynamicWiDiD(
     similarity_threshold=0.78,
-    historical_update_threshold=1000,
+    historical_update_threshold=5,
     history_window=10000,
     min_cluster_fraction=0.005,
     max_cluster_age=8,
@@ -53,7 +53,7 @@ print(widid.snapshot())
 ## Main parameters
 
 - `similarity_threshold`: cosine similarity required to join an existing cluster.
-- `historical_update_threshold`: number of new word occurrences before historical refresh.
+- `historical_update_threshold`: number of `partial_fit()` batch updates before historical refresh.
 - `history_window`: optional maximum number of retained historical occurrences.
 - `min_cluster_fraction`: trims clusters smaller than this fraction of retained embeddings.
 - `max_cluster_age`: trims clusters not updated for this many periods.
@@ -69,13 +69,13 @@ The implementation follows the paper's WiDiD stages:
 
 The new semi-dynamic step is `historical_refresh()`. It reopens retained history after the threshold, re-clusters it with Affinity Propagation, then reconciles the new grouping with stable cluster IDs by centroid similarity.
 
-For true APP behavior, install scikit-learn:
+APP requires scikit-learn:
 
 ```bash
 pip install scikit-learn
 ```
 
-If scikit-learn is not installed, the code falls back to the older cosine-threshold clustering so the scripts can still run, but that fallback is not the paper's APP algorithm.
+If scikit-learn is not installed in the active interpreter, the runner stops with a clear error instead of silently using a different clustering algorithm.
 
 ## Recommended setting
 
@@ -84,7 +84,7 @@ Start with:
 ```python
 SemiDynamicWiDiD(
     similarity_threshold=0.75,
-    historical_update_threshold=500,
+    historical_update_threshold=5,
     history_window=5000,
     min_cluster_fraction=0.002,
     max_cluster_age=None,
@@ -111,9 +111,9 @@ python3 semeval_widid_experiment.py \
   --output widid_comparison.csv \
   --embedding-backend bert \
   --bert-model bert-base-uncased \
-  --historical-update-threshold 10 \
+  --historical-update-threshold 5 \
   --batches-per-corpus 5 \
-  --ap-preference-quantile 90
+  --ap-preference-quantile 50
 ```
 
 The runner writes one row per target word and method:
@@ -124,7 +124,10 @@ The runner writes one row per target word and method:
 - `jsd`, `pdis`, `pdiv`: semantic-shift scores;
 - `clusters`: number of final sense clusters;
 - `batches_c1`, `batches_c2`: number of sequential batches actually used;
+- `updates_processed`: total number of C1 and C2 batch updates;
 - `historical_refreshes`: how many historical refreshes the semi-dynamic method performed;
+- `historical_update_threshold`: refresh interval measured in batch updates;
+- `ap_preference_quantile`, `ap_damping`, `min_cluster_fraction`: clustering configuration saved with the result;
 - `c1_only_clusters`, `c2_only_clusters`, `mixed_clusters`: cluster composition diagnostics;
 - `gold`: gold SemEval score when supplied.
 
@@ -153,9 +156,9 @@ python3 semeval_widid_experiment.py \
   --output widid_bert_english.csv \
   --embedding-backend bert \
   --bert-model bert-base-uncased \
-  --historical-update-threshold 10 \
+  --historical-update-threshold 5 \
   --batches-per-corpus 5 \
-  --ap-preference-quantile 90
+  --ap-preference-quantile 50
 ```
 
 Latin example:
@@ -169,9 +172,9 @@ python3 semeval_widid_experiment.py \
   --output widid_bert_latin.csv \
   --embedding-backend bert \
   --bert-model bert-base-multilingual-uncased \
-  --historical-update-threshold 10 \
+  --historical-update-threshold 5 \
   --batches-per-corpus 5 \
-  --ap-preference-quantile 90
+  --ap-preference-quantile 50
 ```
 
 For Doc2Vec, install:
@@ -193,9 +196,9 @@ python3 semeval_widid_experiment.py \
   --doc2vec-vector-size 100 \
   --doc2vec-window 10 \
   --doc2vec-epochs 15 \
-  --historical-update-threshold 10 \
+  --historical-update-threshold 5 \
   --batches-per-corpus 5 \
-  --ap-preference-quantile 90
+  --ap-preference-quantile 50
 ```
 
 If every `jsd` value is `0`, APP is producing cluster distributions that are
@@ -232,3 +235,6 @@ C1_1 -> C1_2 -> ... -> C1_n -> C2_1 -> C2_2 -> ... -> C2_n
 ```
 
 The final score is still computed as all C1 batches versus all C2 batches.
+With five batches per corpus there are ten updates in total: threshold `5`
+refreshes twice, threshold `10` refreshes once, and a threshold above `10`
+does not refresh during that run.

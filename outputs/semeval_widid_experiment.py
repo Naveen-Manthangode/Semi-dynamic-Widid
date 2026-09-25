@@ -11,7 +11,11 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
-from semi_dynamic_widid import IncrementalWiDiD, SemiDynamicWiDiD
+from semi_dynamic_widid import (
+    IncrementalWiDiD,
+    SemiDynamicWiDiD,
+    require_affinity_propagation,
+)
 
 
 TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
@@ -472,7 +476,12 @@ def run_one_method(
                 "occurrences_c2": len(vectors_c2),
                 "batches_c1": len(c1_batches),
                 "batches_c2": len(c2_batches),
+                "updates_processed": len(c1_batches) + len(c2_batches),
                 "historical_refreshes": getattr(model, "refresh_count", 0),
+                "historical_update_threshold": historical_update_threshold,
+                "ap_preference_quantile": ap_preference_quantile,
+                "ap_damping": ap_damping,
+                "min_cluster_fraction": min_cluster_fraction,
                 "c1_only_clusters": cluster_types["c1_only_clusters"],
                 "c2_only_clusters": cluster_types["c2_only_clusters"],
                 "mixed_clusters": cluster_types["mixed_clusters"],
@@ -496,7 +505,12 @@ def write_rows(path: Path, rows: List[dict]) -> None:
         "occurrences_c2",
         "batches_c1",
         "batches_c2",
+        "updates_processed",
         "historical_refreshes",
+        "historical_update_threshold",
+        "ap_preference_quantile",
+        "ap_damping",
+        "min_cluster_fraction",
         "c1_only_clusters",
         "c2_only_clusters",
         "mixed_clusters",
@@ -556,7 +570,12 @@ def main() -> None:
         default=0.9,
         help="Affinity Propagation damping, in [0.5, 1.0).",
     )
-    parser.add_argument("--historical-update-threshold", type=int, default=500)
+    parser.add_argument(
+        "--historical-update-threshold",
+        type=int,
+        default=5,
+        help="Refresh history after this many partial-fit batch updates.",
+    )
     parser.add_argument("--history-window", type=int, default=None)
     parser.add_argument("--min-cluster-fraction", type=float, default=0.0)
     parser.add_argument(
@@ -572,11 +591,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    try:
+        require_affinity_propagation()
+    except RuntimeError as exc:
+        parser.error(str(exc))
+
     targets = read_targets(args.targets)
     gold, gold_base_entries = read_gold(args.gold)
     print(f"loaded_targets: {len(targets)}")
     print(f"loaded_gold_targets: {gold_base_entries}")
     print(f"embedding_backend: {args.embedding_backend}")
+    print("clustering_algorithm: affinity_propagation_app")
 
     if args.embedding_backend == "hash":
         backend = HashEmbeddingBackend(window=args.window, dim=args.dim)
@@ -682,6 +707,7 @@ def main() -> None:
 
     print(f"targets with usable occurrences: {len(widid_rows)}")
     print(f"batches_per_corpus: {args.batches_per_corpus}")
+    print(f"historical_update_threshold_batches: {args.historical_update_threshold}")
     print(f"ap_preference_quantile: {args.ap_preference_quantile}")
     print(f"ap_damping: {args.ap_damping}")
     print(

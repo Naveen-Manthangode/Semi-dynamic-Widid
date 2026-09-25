@@ -12,15 +12,18 @@ def make_points(center, n, seed):
 def test_refresh_and_scores():
     widid = SemiDynamicWiDiD(
         similarity_threshold=0.92,
-        historical_update_threshold=12,
+        historical_update_threshold=2,
         min_cluster_fraction=0.0,
     )
+    widid._affinity_labels = widid._threshold_labels
 
     widid.partial_fit(make_points([1.0, 0.0], 8, 1), period=1)
-    assert widid.updates_since_refresh == 8
+    assert widid.updates_since_refresh == 1
+    assert widid.refresh_count == 0
 
     widid.partial_fit(make_points([0.0, 1.0], 8, 2), period=2)
     assert widid.updates_since_refresh == 0
+    assert widid.refresh_count == 1
     assert len(widid.snapshot()) >= 2
 
     scores = widid.score_shift(past_periods=[1], current_periods=[2])
@@ -31,9 +34,10 @@ def test_refresh_and_scores():
 
 def test_incremental_baseline_does_not_refresh():
     widid = IncrementalWiDiD(similarity_threshold=0.92)
+    widid._affinity_labels = widid._threshold_labels
     widid.partial_fit(make_points([1.0, 0.0], 8, 3), period=1)
     widid.partial_fit(make_points([0.0, 1.0], 8, 4), period=2)
-    assert widid.updates_since_refresh == 16
+    assert widid.updates_since_refresh == 2
 
 
 if __name__ == "__main__":
